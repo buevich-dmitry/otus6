@@ -1,5 +1,12 @@
 #include "bulk.h"
+#include "response_handler.h"
 #include <boost/program_options.hpp>
+
+namespace po = boost::program_options;
+
+std::string MakeBulkFileName() {
+    return "bulk" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".log";
+}
 
 int main(int ac, char** av) {
     po::options_description desc("Allowed options");
@@ -25,13 +32,14 @@ int main(int ac, char** av) {
         std::terminate();
     }
 
-    std::unique_ptr<ResponseHandler> response_handler = GetMainResponseHandler();
     CommandHandler command_handler{vm["block-size"].as<size_t>()};
+    command_handler.AddResponseHandler(MakeOstreamResponseHandler(std::cout));
+    command_handler.AddResponseHandler(MakeFileResponseHandler(MakeBulkFileName()));
     std::string command;
     while (std::cin >> command) {
-        response_handler->HandleResponse(command_handler.HandleCommand(command));
+        command_handler.HandleCommand(command);
     }
-    response_handler->HandleResponse(command_handler.Stop());
+    command_handler.Stop();
 
     return 0;
 }

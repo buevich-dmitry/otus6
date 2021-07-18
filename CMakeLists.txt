@@ -9,8 +9,7 @@ add_compile_options(-Wall -Wextra -pedantic -Werror)
 
 find_package(Boost COMPONENTS unit_test_framework program_options filesystem REQUIRED)
 
-add_library(bulk_lib INTERFACE)
-target_sources(bulk_lib INTERFACE ${CMAKE_SOURCE_DIR}/bulk.h)
+add_library(bulk_lib bulk.cpp bulk.h response_handler.cpp response_handler.h)
 
 add_executable(otus6 main.cpp)
 set_target_properties(otus6 PROPERTIES

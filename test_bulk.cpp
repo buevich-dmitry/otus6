@@ -36,7 +36,7 @@ void TestResponseHandler(ResponseHandler* handler, std::function<std::string()> 
 
 BOOST_AUTO_TEST_CASE(test_OstreamResponseHandler) {
     std::stringstream ss;
-    std::unique_ptr<ResponseHandler> handler = std::make_unique<OstreamResponseHandler>(ss);
+    std::shared_ptr<ResponseHandler> handler = MakeOstreamResponseHandler(ss);
 
     TestResponseHandler(handler.get(), [&ss]() { return ss.str(); });
 }
@@ -46,7 +46,7 @@ BOOST_AUTO_TEST_CASE(test_FileResponseHandler) {
     if (fs::exists(file_name)) {
         fs::remove(file_name);
     }
-    std::unique_ptr<ResponseHandler> handler = std::make_unique<FileResponseHandler>(file_name);
+    std::shared_ptr<ResponseHandler> handler = MakeFileResponseHandler(file_name);
 
     TestResponseHandler(handler.get(), [&file_name]() {
         BOOST_CHECK(fs::exists(file_name));
@@ -61,42 +61,76 @@ BOOST_AUTO_TEST_CASE(test_FileResponseHandler) {
 
 BOOST_AUTO_TEST_SUITE(test_response_handler)
 
-void TestCommand(CommandHandler& handler, const std::string& command, const std::vector<std::string>& expected_response) {
-    BOOST_CHECK(expected_response == handler.HandleCommand(command));
+class CheckResponseHandler : public ResponseHandler {
+public:
+    void HandleResponse(const std::vector<std::string>& response) override {
+        BOOST_CHECK(expected_response_ == response);
+        is_response_checked_ = true;
+    }
+
+    void SetExpectedResponse(const std::vector<std::string>& response) {
+        expected_response_ = response;
+        is_response_checked_ = false;
+    }
+
+    bool IsResponseChecked() {
+        return is_response_checked_;
+    }
+
+private:
+    std::vector<std::string> expected_response_;
+    bool is_response_checked_ = false;
+};
+
+std::pair<CommandHandler, std::shared_ptr<CheckResponseHandler>> MakeCommandHandler(size_t block_size) {
+    CommandHandler handler{block_size};
+    std::shared_ptr<CheckResponseHandler> response_handler = std::make_shared<CheckResponseHandler>();
+    handler.AddResponseHandler(response_handler);
+    return {std::move(handler), response_handler};
 }
 
-void TestStopCommand(CommandHandler& handler, const std::vector<std::string>& expected_response) {
-    BOOST_CHECK(expected_response == handler.Stop());
+void TestCommand(CommandHandler& handler, const std::shared_ptr<CheckResponseHandler>& response_handler,
+                 const std::string& command, const std::vector<std::string>& expected_response) {
+    response_handler->SetExpectedResponse(expected_response);
+    handler.HandleCommand(command);
+    BOOST_CHECK(response_handler->IsResponseChecked());
+}
+
+void TestStopCommand(CommandHandler& handler, const std::shared_ptr<CheckResponseHandler>& response_handler,
+                     const std::vector<std::string>& expected_response) {
+    response_handler->SetExpectedResponse(expected_response);
+    handler.Stop();
+    BOOST_CHECK(response_handler->IsResponseChecked());
 }
 
 BOOST_AUTO_TEST_CASE(test_CommandHandler_1) {
-    CommandHandler handler{3};
-    TestCommand(handler, "cmd1", {});
-    TestCommand(handler, "cmd2", {});
-    TestCommand(handler, "cmd3", {"cmd1", "cmd2", "cmd3"});
-    TestCommand(handler, "cmd4", {});
-    TestCommand(handler, "cmd5", {});
-    TestStopCommand(handler, {"cmd4", "cmd5"});
+    auto [handler, check_response_handler] = MakeCommandHandler(3);
+    TestCommand(handler, check_response_handler, "cmd1", {});
+    TestCommand(handler, check_response_handler, "cmd2", {});
+    TestCommand(handler, check_response_handler, "cmd3", {"cmd1", "cmd2", "cmd3"});
+    TestCommand(handler, check_response_handler, "cmd4", {});
+    TestCommand(handler, check_response_handler, "cmd5", {});
+    TestStopCommand(handler, check_response_handler, {"cmd4", "cmd5"});
 }
 
 BOOST_AUTO_TEST_CASE(test_CommandHandler_2) {
-    CommandHandler handler{3};
-    TestCommand(handler, "cmd1", {});
-    TestCommand(handler, "cmd2", {});
-    TestCommand(handler, "{", {"cmd1", "cmd2"});
-    TestCommand(handler, "cmd3", {});
-    TestCommand(handler, "cmd4", {});
-    TestCommand(handler, "}", {"cmd3", "cmd4"});
-    TestCommand(handler, "{", {});
-    TestCommand(handler, "cmd5", {});
-    TestCommand(handler, "cmd6", {});
-    TestCommand(handler, "{", {});
-    TestCommand(handler, "cmd7", {});
-    TestCommand(handler, "cmd8", {});
-    TestCommand(handler, "}", {});
-    TestCommand(handler, "cmd9", {});
-    TestCommand(handler, "}", {"cmd5", "cmd6", "cmd7", "cmd8", "cmd9"});
-    TestStopCommand(handler, {});
+    auto [handler, check_response_handler] = MakeCommandHandler(3);
+    TestCommand(handler, check_response_handler, "cmd1", {});
+    TestCommand(handler, check_response_handler, "cmd2", {});
+    TestCommand(handler, check_response_handler, "{", {"cmd1", "cmd2"});
+    TestCommand(handler, check_response_handler, "cmd3", {});
+    TestCommand(handler, check_response_handler, "cmd4", {});
+    TestCommand(handler, check_response_handler, "}", {"cmd3", "cmd4"});
+    TestCommand(handler, check_response_handler, "{", {});
+    TestCommand(handler, check_response_handler, "cmd5", {});
+    TestCommand(handler, check_response_handler, "cmd6", {});
+    TestCommand(handler, check_response_handler, "{", {});
+    TestCommand(handler, check_response_handler, "cmd7", {});
+    TestCommand(handler, check_response_handler, "cmd8", {});
+    TestCommand(handler, check_response_handler, "}", {});
+    TestCommand(handler, check_response_handler, "cmd9", {});
+    TestCommand(handler, check_response_handler, "}", {"cmd5", "cmd6", "cmd7", "cmd8", "cmd9"});
+    TestStopCommand(handler, check_response_handler, {});
 }
 
 }
